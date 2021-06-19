@@ -12,6 +12,10 @@ event GrantAdded:
       duration: uint256
       cliff: uint256
 
+event TokensClaimed:
+      recipient: indexed(address)
+      amountClaimed: uint256
+
 struct Grant:
        start: uint256
        amount: uint256
@@ -66,9 +70,38 @@ def removeTokenGrant(_recipient: address):
 @external
 @nonpayable
 def claimVestedTokens():
-    pass
+    monthsVested: uint256 = 0
+    amtVested: uint256 = 0
+
+    (monthsVested, amtVested) = self.calculateGrantClaim(msg.sender)
+    assert amtVested > 0, "claimVestedTokens::no tokens available to claim"
+
+    grant: Grant = self.tokenGrants[msg.sender]
+    grant.monthsClaimed = grant.monthsClaimed + monthsVested
+    grant.totalClaimed = grant.totalClaimed + amtVested
+
+    self.token.transfer(msg.sender, amtVested)
+    log TokensClaimed(msg.sender, amtVested)
 
 @internal
 @view
-def calculateGrantClaim() -> (uint256, uint256):
-    return (0, 0)
+def calculateGrantClaim(_recipient: address) -> (uint256, uint256):
+    grant: Grant = self.tokenGrants[_recipient]
+
+    if block.timestamp < grant.start:
+       return (0, 0)
+
+    timePassed: uint256 = block.timestamp - grant.start
+    monthsPassed: uint256 = timePassed / SECONDS_PER_MONTH
+
+    if monthsPassed < grant.cliff:
+       return (0, 0)
+
+    if monthsPassed >= grant.duration:
+        remaining: uint256 = grant.amount - grant.totalClaimed
+        return (grant.duration, remaining)
+    else:
+	monthsVested: uint256 = monthsPassed - grant.monthsClaimed
+	monthlyVestAmt: uint256 = grant.amount / grant.duration
+	amtVested: uint256 = monthsVested * monthlyVestAmt
+	return (monthsVested, amtVested)
