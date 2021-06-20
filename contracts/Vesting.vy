@@ -16,6 +16,11 @@ event TokensClaimed:
       recipient: indexed(address)
       amountClaimed: uint256
 
+event GrantRemoved:
+      recipient: indexed(address)
+      amtVested: uint256
+      amtNotVested: uint256
+
 struct Grant:
        start: uint256
        amount: uint256
@@ -27,6 +32,29 @@ struct Grant:
 token: public(ERC20)
 owner: public(address)
 tokenGrants: public(HashMap[address, Grant])
+
+@internal
+@view
+def calculateGrantClaim(_recipient: address) -> (uint256, uint256):
+    grant: Grant = self.tokenGrants[_recipient]
+
+    if block.timestamp < grant.start:
+       return (0, 0)
+
+    timePassed: uint256 = block.timestamp - grant.start
+    monthsPassed: uint256 = timePassed / SECONDS_PER_MONTH
+
+    if monthsPassed < grant.cliff:
+       return (0, 0)
+
+    if monthsPassed >= grant.duration:
+        remaining: uint256 = grant.amount - grant.totalClaimed
+        return (grant.duration, remaining)
+    else:
+        monthsVested: uint256 = monthsPassed - grant.monthsClaimed
+        monthlyVestAmt: uint256 = grant.amount / grant.duration
+        amtVested: uint256 = monthsVested * monthlyVestAmt
+        return (monthsVested, amtVested)
 
 @external
 @nonpayable
@@ -65,7 +93,18 @@ def addTokenGrant(_recipient: address, _start: uint256, _amount: uint256, _total
 @external
 @nonpayable
 def removeTokenGrant(_recipient: address):
-    pass
+    grant: Grant = self.tokenGrants[_recipient]
+
+    monthsVested: uint256 = 0
+    amtVested: uint256 = 0
+
+    (monthsVested, amtVested) = self.calculateGrantClaim(_recipient)
+    amtNotVested: uint256 = grant.amount - grant.totalClaimed - amtVested
+
+    self.token.transfer(_recipient, amtVested)
+    self.token.transfer(self.owner, amtNotVested)
+
+    log GrantRemoved(_recipient, amtVested, amtNotVested)
 
 @external
 @nonpayable
@@ -82,26 +121,3 @@ def claimVestedTokens():
 
     self.token.transfer(msg.sender, amtVested)
     log TokensClaimed(msg.sender, amtVested)
-
-@internal
-@view
-def calculateGrantClaim(_recipient: address) -> (uint256, uint256):
-    grant: Grant = self.tokenGrants[_recipient]
-
-    if block.timestamp < grant.start:
-       return (0, 0)
-
-    timePassed: uint256 = block.timestamp - grant.start
-    monthsPassed: uint256 = timePassed / SECONDS_PER_MONTH
-
-    if monthsPassed < grant.cliff:
-       return (0, 0)
-
-    if monthsPassed >= grant.duration:
-        remaining: uint256 = grant.amount - grant.totalClaimed
-        return (grant.duration, remaining)
-    else:
-	monthsVested: uint256 = monthsPassed - grant.monthsClaimed
-	monthlyVestAmt: uint256 = grant.amount / grant.duration
-	amtVested: uint256 = monthsVested * monthlyVestAmt
-	return (monthsVested, amtVested)
