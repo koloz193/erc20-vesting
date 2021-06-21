@@ -104,6 +104,8 @@ def removeTokenGrant(_recipient: address):
     self.token.transfer(_recipient, amtVested)
     self.token.transfer(self.owner, amtNotVested)
 
+    self.tokenGrants[_recipient] = empty(Grant)
+
     log GrantRemoved(_recipient, amtVested, amtNotVested)
 
 @external
